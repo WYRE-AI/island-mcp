@@ -10,7 +10,10 @@
  * Dependency-free on purpose: copy verbatim to other fleet repos.
  */
 
+/** Maximum HTTP request body size in bytes (256 KiB). */
 export const MAX_REQUEST_BODY_BYTES = 256 * 1024;
+
+/** Maximum number of array elements plus own object keys, counted at every depth. */
 export const MAX_TOOL_INPUT_ELEMENTS = 10_000;
 
 /**
@@ -38,16 +41,28 @@ export function countToolInputElements(value: unknown, max: number): number {
   return count;
 }
 
+/**
+ * Return whether the arguments exceed the element limit.
+ *
+ * @param args Arguments to count.
+ * @param max Maximum number of counted elements. Defaults to MAX_TOOL_INPUT_ELEMENTS.
+ */
 export function toolInputTooLarge(args: unknown, max = MAX_TOOL_INPUT_ELEMENTS): boolean {
   return countToolInputElements(args, max) > max;
 }
 
-export function toolInputTooLargeResult(toolName: string, max = MAX_TOOL_INPUT_ELEMENTS) {
+/**
+ * Build the error result for arguments that exceed the element limit. The
+ * message is fixed and never echoes caller input such as the tool name (CWE-209).
+ *
+ * @param max Maximum number of counted elements. Defaults to MAX_TOOL_INPUT_ELEMENTS.
+ */
+export function toolInputTooLargeResult(max = MAX_TOOL_INPUT_ELEMENTS) {
   return {
     content: [
       {
         type: 'text' as const,
-        text: `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${max} elements`,
+        text: `Tool input exceeds the maximum of ${max} elements`,
       },
     ],
     isError: true,

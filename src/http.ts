@@ -169,20 +169,6 @@ export async function startHttpTransport(): Promise<Server> {
       return;
     }
 
-    // Body cap runs only after S2S passes so unauthenticated callers still get 401.
-    const contentLength = Number(headerValue(req.headers['content-length']));
-    if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BODY_BYTES) {
-      res.writeHead(413, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          jsonrpc: '2.0',
-          error: { code: -32600, message: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes` },
-          id: null,
-        }),
-      );
-      return;
-    }
-
     // SECURITY-CRITICAL invariant: this transport MUST stay stateless
     // (sessionIdGenerator: undefined + enableJsonResponse: true).
     // Per-request tenant credentials are carried in an AsyncLocalStorage
@@ -211,16 +197,30 @@ export async function startHttpTransport(): Promise<Server> {
     // falling through — falling through would resolve ISLAND_API_KEY from
     // the process environment, which is not request-scoped.
     // X-Island-Base-URL remains optional.
-    if (isGatewayMode) {
-      const apiKey = headerValue(req.headers['x-island-api-key']);
+    const apiKey = isGatewayMode ? headerValue(req.headers['x-island-api-key']) : undefined;
+    if (isGatewayMode && !apiKey) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(GATEWAY_CREDENTIALS_UNAUTHORIZED));
+      return;
+    }
+
+    // Body cap runs after S2S and the gateway credential check so
+    // unauthenticated callers still get 401 before 413.
+    const contentLength = Number(headerValue(req.headers['content-length']));
+    if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BODY_BYTES) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32600, message: `Request body exceeds ${MAX_REQUEST_BODY_BYTES} bytes` },
+          id: null,
+        }),
+      );
+      return;
+    }
+
+    if (isGatewayMode && apiKey) {
       const baseUrl = headerValue(req.headers['x-island-base-url']);
-
-      if (!apiKey) {
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(GATEWAY_CREDENTIALS_UNAUTHORIZED));
-        return;
-      }
-
       await runWithCredentials({ apiKey, baseUrl }, handle);
       return;
     }
